@@ -1,7 +1,7 @@
 # [Unfinished] GPU Passthrough on a Laptop Running PikaOS (Debian-based)
 
 ## Abstract
-ATM this guide will assist in setting up GPU virtualization. You can follow [the guide made by asus-linux team](https://asus-linux.org/guides/vfio-guide/), as it covers setting up a Windows 10/11 VM with QEMU/KVM enhancements for a laptop with hybrid graphics (Intel/AMD + NVIDIA).
+ATM this guide will assist in setting up CPU and GPU virtualization. You can follow [the guide made by asus-linux team](https://asus-linux.org/guides/vfio-guide/), as it covers setting up a Windows 10/11 VM with QEMU/KVM enhancements for a laptop with hybrid graphics (Intel/AMD + NVIDIA).
 
 ## Prerequisites
 - **CPU:** At least a 6-core Intel/AMD CPU with hyper-threading/SMT (12 threads total) and virtualization support (VT-d/AMD-Vi).
