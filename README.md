@@ -195,6 +195,7 @@ Add at the end:
 ```shell
 $USER ALL=(ALL) NOPASSWD: /usr/bin/supergfxctl
 ```
+The command you will be using is `gpuswitch`.
 ## Installing Dependencies
 
 First things first, make sure your system has all the necessary packages installed. Run the following:
@@ -352,6 +353,69 @@ To fix networking, install the VirtIO network drivers:
 - Now select **Drive 0  Unallocated Space** and hit **Next**.
 
 - The system will install and reboot a few times—just let it do its thing. Once you’re in Windows, complete the initial setup and shut down the VM. Now we can move on to GPU passthrough.
+
+## Configuring the VM for GPU Passthrough
+
+Now that your VM is set up, it's time to add your NVIDIA GPU to the virtual machine and install the necessary drivers in Windows 10/11. Before proceeding, you'll need to modify the VM's XML configuration.
+
+### Adding dGPU to the hardware list
+- Identify GPU's PCI details. Run 
+```shell
+lspci -nks 1:00.0
+```
+Example output
+```shell
+01:00.0 0300: 10de:2191 (rev a1)
+Subsystem: 1043:17ef # This is your dGPU's sub-vendor/device ID
+Kernel driver in use: nvidia
+Kernel modules: nvidia
+```
+From this, take note of your **subsystem ID**, **vendor ID**, and **device ID**. In this case, the subsystem ID is `1043:3a44`, with a vendor ID of `17ef` and a device ID of `17ef`. 
+
+- Next, enable XML editing in virt-manager. Open **Edit > Preferences**, navigate to the General tab, check **Enable XML editing**, and click **Close**.
+
+<p align="center">
+	<img src=./media/19.png height=350px>
+</p>
+
+- Select your VM, then click the second at the top left. Click **Add Hardware** in the bottom left corner, then choose **PCI Host Device** from the list. Select **both** PCI devices labeled NVIDIA Corporation XXXX, then click **Finish**. If another PCI device named "NVIDIA Corporation" appears, repeat the process. 
+
+<p align="center">
+	<img src=./media/20.png height=500px>
+</p>
+
+### Editing the VM XML Configuration
+
+- Open the **Overview** tab, then switch to the **XML** tab. Modify the `<domain>` tag at the top of the file as follows *(DO NOT APPLY YET!)*:
+```xml
+<domain xmlns:qemu="http://libvirt.org/schemas/domain/qemu/1.0" type="kvm">
+```
+<p align="center">
+	<img src=./media/21.png height=200px>
+</p>
+
+- Scroll to the bottom of the XML file. Just before `</domain>`, add the following block, adjusting the values accordingly:
+```xml
+  <qemu:override>
+    <qemu:device alias="hostdev0">
+      <qemu:frontend>
+        <qemu:property name="x-pci-sub-vendor-id" type="unsigned" value="4163"/>
+        <qemu:property name="x-pci-sub-device-id" type="unsigned" value="6127"/>
+      </qemu:frontend>
+    </qemu:device>
+  </qemu:override>
+```
+
+To determine the correct values, convert your **subsystem ID** from hexadecimal to decimal. Use an [online converter](https://www.rapidtables.com/convert/number/hex-to-decimal.html). For example, `1043` (hex) becomes **4163** (decimal), and `17ef` (hex) becomes **6127**(decimal). Once you've updated the values, click **Apply**.
+<p align="center">
+	<img src=./media/22.png height=500px>
+</p>
+
+### Testing the VM and Installing NVIDIA Drivers
+- Boot into Windows and log in.
+- Download the latest NVIDIA drivers from the [**official NVIDIA website**](https://www.nvidia.com/en-us/geforce/drivers/) that match your GPU.
+
+- Install the drivers, then open **Device Manager** and check under D*isplay Adapters*. If everything is set up correctly, your GPU should appear without any error messages.
 
 ## References
 - [VFIO GPU Passthrough Guide](https://asus-linux.org/wiki/vfio-guide)
