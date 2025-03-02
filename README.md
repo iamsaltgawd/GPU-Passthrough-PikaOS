@@ -195,8 +195,166 @@ Add at the end:
 ```shell
 $USER ALL=(ALL) NOPASSWD: /usr/bin/supergfxctl
 ```
+## Installing Dependencies
+
+First things first, make sure your system has all the necessary packages installed. Run the following:
+```shell
+sudo apt update
+sudo apt -y install qemu-kvm libvirt-daemon  bridge-utils virtinst libvirt-daemon-system
+```
+If you're planning to use a GUI to manage your VMs (which I am, because convenience), install virt-manager and some extra tools:
+```shell
+sudo apt -y install vim libguestfs-tools libosinfo-bin  qemu-system virt-manager
+```
+### Preparing ISO Files
+Create a dedicated folder in your home directory to store the Windows ISO. I'm using a [custom lightweight windows build](https://windowsxlite.com/Micro10-22H2/), but you can use whatever fits your needs.
+<p align="center">
+	 <img src=./media/Screenshot_20250302_190743.png height=300px>
+</p>
+
+You'll also need the **virtio-win drivers** for optimal performance. Head over to [**this link**](https://github.com/virtio-win/virtio-win-pkg-scripts/blob/master/README.md), grab the **Latest virtio-win ISO**, and drop it into the same folder.
+### Creating the VM
+- Open virt-manager from your application menu.
+- Click **Create a new VM**, then select **Local install media**.
+<p align="center">
+	 <img src=./media/1.png height=500px>
+ </p>
+
+- Click **Browse**, select your Windows ISO, and confirm.
+<p align="center">
+	 <img src=./media/2.png height=500px>
+ </p>
+
+- Click the **+** button in the bottom left, name the storage pool *(eg: `win10VM`)*, and point it to your VM folder.
+<p align="center">
+	 <img src=./media/3.png height=500px>
+</p>
+
+- Select the newly created pool, choose your **Windows ISO**, and hit **Choose Volume**.
+<p align="center">
+	<img src=./media/4.png height=500px>
+</p>
+
+- Assign **RAM** and **CPU cores** based on what your system can handle. At least 4GB RAM and 2–4 cores are recommended for Windows 10/11. You can modify these settings again later.
+<p align="center">
+	<img src=./media/5.png height=500px>
+</p>
+
+### Creating the virtual disk
+Instead of using the default storage path (`/var/lib/libvirt/images`), store your virtual disk in your VM folder:
+- Click "**Select or create a custom image**", then **Manage**
+<p align="center">
+	<img src=./media/6.png height=500px>
+</p>
+
+- Choose your pool, hit **+** at the top, name your virtual disk, set a size and make sure the format **qcow2** is selected. 
+
+<p align="center">
+	<img src=./media/7.png height=500px>
+</p>
+
+- Select the disk that you have just created. Then click **Choose Volume**. Make sure the path is correct.
+<p align="center">
+	<img src=./media/8.png height=500px>
+</p>
+
+- Name your VM (no spaces). Tick **Customize configuration before install** so we can tweak things before booting up. Then, click **Finish**.
+<p align="center">
+	<img src=./media/9.png height=500px>
+</p>
+
+### Adjusting VM Settings
+#### Overview
+- Set **Chipset** to **Q35**.
+- Change the firmware to **UEFI x86_64: /../OVMF_CODE_4M.fd** (or `OVMF_CODE_4m.secboot.fd` for Windows 11, to enable secure boot). Click **Apply**.
+<p align="center">
+	<img src=./media/10.png height=500px>
+</p>
+
+#### CPU
+- **Manually set CPU topology**, and edit your **sockets**, **cores** and **threads**. Avoid maxing out your host’s CPU - leave at least one or two cores free.
+<p align="center">
+	<img src=./media/11.png height=250px>
+</p>
+
+- Run `lscpu` if you are unsure about your CPU layout. Check under the `VendorID`. This is the output in my terminal:
+    ```shell
+    Vendor ID:                AuthenticAMD
+      Model name:             AMD Ryzen 9 4900HS with Radeon Graphics
+      CPU family:           23
+      Model:                96
+      Thread(s) per core:   2
+      Core(s) per socket:   8
+      Socket(s):            1
+    ```
+#### Memory
+- Make sure there's enough RAM for both the host and the VM.
+- **"Enable shared memory"** is necessary if you plan to use **Looking Glass**.
+<p align="center">
+	<img src=./media/12.png height=200px>
+</p>
+
+#### Storage
+- Go to **SATA Disk 1**, change **Disk bus** type to **virtio**.
+- In advanced options, change **Cache mode** to  **none** and **Discard mode** to **unmap**. 
+- Ensure **SATA CDROM 1** is *read-only*.
+<p align="center">
+	<img src=./media/13.png height=200px>
+</p>
+
+#### Network
+- In the **NIC** tab, change the device model from e1000e to **virtio** for better performance. Make sure the link state is **active**
+<p align="center">
+	<img src=./media/14.png height=180px>
+</p>
+
+##### Video
+- Leave **QXL** as the video model.
+
+#### Adding VirtIo Drivers
+- Click **Add Hardware** in the bottom left corner, select **Storage**
+- Select **virtio-win ISO file** *(same directory as your Windows ISO file)*
+- Set the **Device Type** to **CDROM device**
+- Enable **Readonly** under **Advanced options**
+- Click **Finish** to add the Hardware
+- Click **Begin Installation** in the top left corner.
+<p align="center">
+	<img src=./media/15.png height=500px>
+</p>
+
+
+## Windows Installation
+The installation process is standard, but you'll need to load the VirtIO storage drivers manually.
+
+**NOTE:** If the installer doesn't detect your virtual disk:
+- Click **Load driver**, then **Browse**.
+- Navigate to `This PC > CD Drive (virtio-win) > viostor > w10/w11 > amd64`
+<p align="center">
+	<img src=./media/16.png height=300px>
+</p>
+
+- The **Red Hat VirtIO SCSI Controller** should be selected. Click Next.
+<p align="center">
+	<img src=./media/17.png height=300px>
+</p>
+
+- Now your drive should appear. But we’re not done yet.
+
+To fix networking, install the VirtIO network drivers:
+- Click **Load driver**, then **Browse**.
+- Navigate to `CD Drive (virtio-win) > NetKVM > w10/w11 > amd64`.
+- The **Red Hat VirtIO Ethernet Adapter** should appear, and select it to install. 
+
+<p align="center">
+	<img src=./media/18.png height=300px>
+</p>
+
+- Now select **Drive 0  Unallocated Space** and hit **Next**.
+
+- The system will install and reboot a few times—just let it do its thing. Once you’re in Windows, complete the initial setup and shut down the VM. Now we can move on to GPU passthrough.
 
 ## References
 - [VFIO GPU Passthrough Guide](https://asus-linux.org/wiki/vfio-guide)
 - [Optimus dGPU Passthrough Guide](https://github.com/mysteryx93/GPU-Passthrough-with-Optimus-Manager-Guide)
 - [Supergfxctl Documentation](https://gitlab.com/asus-linux/supergfxctl)
+- [Custom Windows Builds](https://windowsxlite.com/Micro10/)
