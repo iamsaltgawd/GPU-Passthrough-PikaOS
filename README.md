@@ -569,8 +569,175 @@ looking-glass-client -m <number>
 ```
 e.g: Right Ctrl is 97, so you should type `looking-glass-client -m 97`.
 
+## CPU Pinning
+CPU pinning is a crucial optimization technique that significantly improves virtual machine (VM) performance by dedicating specific CPU cores to the VM. By isolating and assigning cores exclusively to the VM, system responsiveness and stability are maintained, preventing resource contention with the host.
+
+*Important: Do not assign all cores to the VM. At least one core (or more, depending on workload) should remain dedicated to the host to ensure system stability.*
+
+### Know your CPU topology
+
+Modern CPUs from Intel and AMD differ in core-thread structures. Intel CPUs use Hyper-Threading (HT), while AMD CPUs use Simultaneous Multithreading (SMT), typically providing two threads per core.
+
+To inspect your CPU topology, run:
+```
+lscpu -e
+```
+Example output (my AMD Ryzen 9 4900HS with 8 cores and 16 threads):
+```shell
+CPU NODE SOCKET CORE L1d:L1i:L2:L3 ONLINE    MAXMHZ    MINMHZ       MHZ
+  0    0      0    0 0:0:0:0          yes 3000.0000 1400.0000 1397.3400
+  1    0      0    0 0:0:0:0          yes 3000.0000 1400.0000 1512.9830
+  2    0      0    1 1:1:1:0          yes 3000.0000 1400.0000 1397.3361
+  3    0      0    1 1:1:1:0          yes 3000.0000 1400.0000 1397.2480
+  4    0      0    2 2:2:2:0          yes 3000.0000 1400.0000 1397.0890
+  5    0      0    2 2:2:2:0          yes 3000.0000 1400.0000 3000.0000
+  6    0      0    3 3:3:3:0          yes 3000.0000 1400.0000 1397.3929
+  7    0      0    3 3:3:3:0          yes 3000.0000 1400.0000 1400.0000
+  8    0      0    4 4:4:4:1          yes 3000.0000 1400.0000 1400.0000
+  9    0      0    4 4:4:4:1          yes 3000.0000 1400.0000 1400.0000
+ 10    0      0    5 5:5:5:1          yes 3000.0000 1400.0000 1400.0000
+ 11    0      0    5 5:5:5:1          yes 3000.0000 1400.0000 1400.0000
+ 12    0      0    6 6:6:6:1          yes 3000.0000 1400.0000 1397.4240
+ 13    0      0    6 6:6:6:1          yes 3000.0000 1400.0000 1397.3521
+ 14    0      0    7 7:7:7:1          yes 3000.0000 1400.0000 1400.0000
+ 15    0      0    7 7:7:7:1          yes 3000.0000 1400.0000 1400.0000
+```
+
+- Example output (Intel Core i7-8700k with 6 cores and 12 threads):
+```shell
+CPU NODE SOCKET CORE L1d:L1i:L2:L3 ONLINE MAXMHZ    MINMHZ
+0   0    0      0    0:0:0:0       yes    4600.0000 800.0000
+1   0    0      1    1:1:1:0       yes    4600.0000 800.0000
+2   0    0      2    2:2:2:0       yes    4600.0000 800.0000
+3   0    0      3    3:3:3:0       yes    4600.0000 800.0000
+4   0    0      4    4:4:4:0       yes    4600.0000 800.0000
+5   0    0      5    5:5:5:0       yes    4600.0000 800.0000
+6   0    0      0    0:0:0:0       yes    4600.0000 800.0000
+7   0    0      1    1:1:1:0       yes    4600.0000 800.0000
+8   0    0      2    2:2:2:0       yes    4600.0000 800.0000
+9   0    0      3    3:3:3:0       yes    4600.0000 800.0000
+10  0    0      4    4:4:4:0       yes    4600.0000 800.0000
+11  0    0      5    5:5:5:0       yes    4600.0000 800.0000
+```
+*\*Note: Intel 12th Gen processors and up have different topography than the generations before it, with the presence of p-cores and e-cores. Someone made a post [here](https://www.reddit.com/r/VFIO/comments/ueulso/intel_12th_gen_tested/) on how they successfully pinned their CPU.*
+
+- Each CPU core has two logical threads. Proper mapping ensures optimal performance. Mapping example (the previous CPUs):
+
+| AMD   | Intel | (n)th Core |
+| :---: | :---: | :---: |
+| `0,1`   | `0,6`   | 1          |
+| `2,3`   | `1,7`   | 2          |
+| `4,5`   | `2,8`   | 3          |
+| `6,7`   | `3,9`   | 4          |
+| `8,9`   | `4,10`  | 5          |
+| `10,11` | `5,11`  | 6          |
+| `12,13` |         | 7          |
+| `14,15` |         | 8          |
+
+- If I want to isolate them, I would use 2nd-6th cores for VM, and 1st core (or 1st and 2nd cores) reserves for host. Remember these setups, as you need to configure them later on:
+	- **AMD**: Reserve cores `0,1` for host, assign `3-15` to VM (I did `0,3` for cores, `4,15` to VM)
+	- **Intel**: Reserve cores `0,6` for host, assign `1-5, 7-11` to VM.
+	- To config AMD CPU in XML: `4,5,6,7,8,9,10,11,12,13,14,15`
+	- To config Intel CPU in XML: `1,7,2,8,3,9,4,10,5,11`
+
+- To visualize your CPU topology, run:
+```shell
+sudo apt install hwloc
+lstopo
+```
+
+Mine looks like this:
+
+<img src=./media/lstopo.png width="500">
+
+### Configuring CPU Pinning in XML
+- Under **CPUs** tab, go to XML editing window, find the `<vcpu/>` line. Replace it with one of snippets below:
+- For AMD Ryzen 9 4900Hs, passing the last 6 cores to VM:
+```xml
+  <vcpu placement='static'>12</vcpu>
+  <iothreads>1</iothreads>
+  <cputune>
+    <vcpupin vcpu='0' cpuset='4'/>
+    <vcpupin vcpu='1' cpuset='5'/>
+    <vcpupin vcpu='2' cpuset='6'/>
+    <vcpupin vcpu='3' cpuset='7'/>
+    <vcpupin vcpu='4' cpuset='8'/>
+    <vcpupin vcpu='5' cpuset='9'/>
+    <vcpupin vcpu='6' cpuset='10'/>
+    <vcpupin vcpu='7' cpuset='11'/>
+    <vcpupin vcpu='8' cpuset='12'/>
+    <vcpupin vcpu='9' cpuset='13'/>
+    <vcpupin vcpu='10' cpuset='14'/>
+    <vcpupin vcpu='11' cpuset='15'/>
+    <emulatorpin cpuset='0-1'/>
+    <iothreadpin iothread='1' cpuset='0-1'/>
+  </cputune>
+```
+
+- For Intel Core i7-8700k, passing the last 5 cores to VM:
+```xml
+  <vcpu placement='static'>10</vcpu>
+  <iothreads>1</iothreads>
+  <cputune>
+    <vcpupin vcpu='0' cpuset='1'/>
+    <vcpupin vcpu='1' cpuset='7'/>
+    <vcpupin vcpu='2' cpuset='2'/>
+    <vcpupin vcpu='3' cpuset='8'/>
+    <vcpupin vcpu='4' cpuset='3'/>
+    <vcpupin vcpu='5' cpuset='9'/>
+    <vcpupin vcpu='6' cpuset='4'/>
+    <vcpupin vcpu='7' cpuset='10'/>
+    <vcpupin vcpu='8' cpuset='5'/>
+    <vcpupin vcpu='9' cpuset='11'/>
+    <emulatorpin cpuset='0,6'/>
+    <iothreadpin iothread='1' cpuset='0,6'/>
+  </cputune>
+```
+
+## Isolating CPU cores
+To prevent the host from using pinned cores, use kernel parameters or libvirt hooks. I will only cover creating libvirt hooks, since I 
+
+### Libvirt Hook (Dynamic Isolation)
+Create a libvirt hooks scripty:
+```shell
+sudo mkdir -p /etc/libvirt/hooks
+sudo nano /etc/libvirt/hooks/qemu
+```
+
+- Add the following content. replace the `AllowedCPUs` value to match the cores that you want the VM to use *(for AMD I'm using 0-3)*:
+```shell
+#!/bin/sh
+
+command=$2
+
+# When VM starts, the core from 0 to 3 will be used for host (0,6 if Intel)
+if [ "$command" = "started" ]; then
+    systemctl set-property --runtime -- system.slice AllowedCPUs=0,1,2,3
+    systemctl set-property --runtime -- user.slice AllowedCPUs=0,1,2,3
+    systemctl set-property --runtime -- init.scope AllowedCPUs=0,1,2,3
+# If VM stops, the host will reclaim all cores
+elif [ "$command" = "release" ]; then
+    systemctl set-property --runtime -- system.slice AllowedCPUs=0-15
+    systemctl set-property --runtime -- user.slice AllowedCPUs=0-15
+    systemctl set-property --runtime -- init.scope AllowedCPUs=0-15
+fi
+```
+
+Make it executable and restart libvirtd service:
+```shell
+sudo chmod +x /etc/libvirt/hooks/qemu
+sudo systemctl restart libvirtd
+```
+
+### Verification
+Now start your VM and run `htop` or use any app/widget that allows you to track CPU cores usage. If the script works, you will see that some of the cores are in 0% utilization at Windows startup. That means it's working.
+
 ## References
 - [VFIO GPU Passthrough Guide](https://asus-linux.org/wiki/vfio-guide)
 - [Optimus dGPU Passthrough Guide](https://github.com/mysteryx93/GPU-Passthrough-with-Optimus-Manager-Guide)
+- [GPU passthrough with Ryzen CPU and Nvidia GPU by DrZetein](https://www.reddit.com/r/VFIO/comments/vji03e/gpu_passthrough_success_report_on_acer_nitro_5/)
+- [dGPU Passthrough on Ubuntu 22.04.2](https://github.com/Andrew-Willms/GPU-Passthrough-On-Ubuntu-22.04.2-for-Beginners)
 - [Supergfxctl Documentation](https://gitlab.com/asus-linux/supergfxctl)
+- [Looking-Glass website](https://looking-glass.io/)
 - [Custom Windows Builds](https://windowsxlite.com/Micro10/)
+- [CPU Pinning](https://rokups.github.io/#!pages/gaming-vm-performance.md)
