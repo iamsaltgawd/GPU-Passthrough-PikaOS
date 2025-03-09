@@ -1,4 +1,4 @@
-# [Guide] Windows VM with GPU passthrough optimized for high-performance gaming and apps on PikaOS (Debian-based)
+# [Guide] Windows VM with GPU passthrough optimized for high-performance gaming and professional apps on PikaOS (Debian-based)
 
 ## Abstract
 This guide provides instructions for configuring CPU and GPU virtualization, along with the setup and customization of a Virtual Machine. For a more in-depth resource, refer to the [guide created by the ASUS-Linux team](https://asus-linux.org/guides/vfio-guide/).
